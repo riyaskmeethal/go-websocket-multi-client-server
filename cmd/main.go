@@ -20,7 +20,7 @@ func main() {
 
 	// Start HTTP server
 	fmt.Println("Server started on :8080")
-	if err := http.ListenAndServeTLS(":8080", "localhost.pem", "localhost-key.pem", nil); err != nil {
+	if err := http.ListenAndServe(":8080", nil); err != nil {
 		log.Fatal("ListenAndServe: ", err)
 	}
 }

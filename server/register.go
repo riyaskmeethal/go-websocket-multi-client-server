@@ -53,28 +53,16 @@ func (s *Server) RegisterClient(c *gin.Context) {
 	worker := s.GetWorker(wid)
 	if client := worker.GetClient(cid); client == nil {
 
-		log.Println("New client Created.")
-
 		client = NewClient(wid, cid)
 		client.conn = conn
 
 		worker.register <- client
 		atomic.AddInt64(&activeConnections, 1)
-		defer func() {
-			log.Println("unregistering")
-			atomic.AddInt64(&activeConnections, -1)
-			worker.unregister <- client
-			worker.clientsCount--
-			if worker.clientsCount < 1 {
-				log.Println("removing worker")
-				s.removeWorker <- wid
-			}
-		}()
+		defer s.CleanWorker(wid, client)
 
-		log.Println("client ping running ------------- job")
 		go PingClient(ctx, client)
 
-		log.Println("Client reader ------------- job")
+		log.Println("Listening for client communications")
 		for {
 			_, m, err := client.conn.ReadMessage()
 			if err != nil {
@@ -92,6 +80,8 @@ func (s *Server) RegisterClient(c *gin.Context) {
 }
 
 func PingClient(ctx context.Context, c *Client) {
+
+	log.Println("client ping service running")
 
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()

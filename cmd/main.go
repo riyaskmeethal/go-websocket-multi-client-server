@@ -18,7 +18,6 @@ func main() {
 	router.POST("/transaction", s.HandleTransactions)
 	router.POST("/broadcast", s.HandleBroadCast)
 
-	log.Println("status printer running ------------- job")
 	go server.StatsPrinter()
 
 	// Start HTTP server

@@ -26,13 +26,14 @@ func NewClient(wid, cid string) *Client {
 		send:   make(chan []byte, 10),
 		mu:     sync.Mutex{},
 	}
-	log.Println("client messsage manager running ------------- job")
 	go client.SendMessages(ctx)
 	return client
 
 }
 
 func (c *Client) SendMessages(ctx context.Context) {
+
+	log.Println("client messsage manager running")
 
 	for {
 		select {

@@ -18,19 +18,20 @@ func NewServer() *Server {
 		Workers:      &sync.Map{},
 		removeWorker: make(chan string, 10),
 	}
-	log.Println("Worker observer running ---------job")
+
 	go s.RemoveWorker()
 	return s
 }
 
 func (s *Server) RemoveWorker() {
 
+	log.Println("Worker observer running")
 	for wid := range s.removeWorker {
-		if w := s.GetWorker(wid); w != nil {
+		if w := s.GetRegisteredWorker(wid); w != nil {
 			w.cancel()
+			s.Workers.Delete(wid)
+			log.Println("Worker Removed.", wid)
 		}
-		go s.Workers.Delete(wid)
-		log.Println("Worker Removed.", wid)
 	}
 }
 
@@ -62,6 +63,20 @@ func StatsPrinter() {
 			atomic.LoadInt64(&activeConnections),
 			runtime.NumGoroutine())
 		time.Sleep(30 * time.Second)
+	}
+}
+
+func (s *Server) CleanWorker(wid string, c *Client) {
+
+	log.Println("Cleaning worker : ", wid)
+
+	if w := s.GetRegisteredWorker(wid); w != nil {
+		atomic.AddInt64(&w.clientsCount, -1)
+		w.unregister <- c
+		if w.clientsCount < 1 {
+			log.Println("removing worker")
+			s.removeWorker <- wid
+		}
 	}
 }
 

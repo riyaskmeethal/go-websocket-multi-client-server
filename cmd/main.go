@@ -4,23 +4,26 @@ import (
 	"fmt"
 	"go-websocket-multi-client-server/server"
 	"log"
-	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
 
-	server := server.NewServer()
+	s := server.NewServer()
 
-	// Set up HTTP handler to handle WebSocket connections
-	http.HandleFunc("/ws", server.RegisterClient)
-	http.HandleFunc("/transaction", server.HandleTransactions)
+	router := gin.Default()
 
-	// Start the WebSocket server in a goroutine
-	go server.Run()
+	router.GET("/subscribe/:wid/:cid", s.RegisterClient)
+	router.POST("/transaction", s.HandleTransactions)
+	router.POST("/broadcast", s.HandleBroadCast)
+
+	log.Println("status printer running ------------- job")
+	go server.StatsPrinter()
 
 	// Start HTTP server
-	fmt.Println("Server started on :8080")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	fmt.Println("Server started on :80")
+	if err := router.Run(":80"); err != nil {
 		log.Fatal("ListenAndServe: ", err)
 	}
 }

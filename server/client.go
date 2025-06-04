@@ -1,58 +1,54 @@
 package server
 
 import (
+	"context"
 	"log"
-	"net/http"
-	"strings"
+	"sync"
 
 	"github.com/gorilla/websocket"
 )
 
-func (s *Server) RegisterClient(w http.ResponseWriter, r *http.Request) {
-	// Upgrade HTTP connection to WebSocket
-	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool { return true },
+type Client struct {
+	wid    string
+	cid    string
+	cancel context.CancelFunc
+	conn   *websocket.Conn
+	send   chan []byte
+	mu     sync.Mutex
+}
+
+func NewClient(wid, cid string) *Client {
+	ctx, cancel := context.WithCancel(context.Background())
+	client := &Client{
+		wid:    wid,
+		cid:    cid,
+		cancel: cancel,
+		send:   make(chan []byte, 10),
+		mu:     sync.Mutex{},
 	}
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Println(err)
-		return
-	}
+	log.Println("client messsage manager running ------------- job")
+	go client.SendMessages(ctx)
+	return client
 
-	clientID := strings.TrimSpace(r.URL.Query().Get("id"))
+}
 
-	if clientID == "" {
-		log.Println("Cleint id needed.")
-		return
-	}
-	if _, ok := s.clients[clientID]; !ok {
+func (c *Client) SendMessages(ctx context.Context) {
 
-		Client := NewClient()
-		Client.id = clientID
-		Client.conn = conn
-
-		s.register <- Client
-
-		log.Println("clients", len(s.clients))
-
-		// routine for sending messages to the client
-		go s.SendMessages(Client)
-
-		// Listen for messages from the client
-		for {
-			t, msg, err := conn.ReadMessage()
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("shutting down send message listner for client : ", c.wid, " : ", c.cid)
+			return
+		case msg := <-c.send:
+			// Send the message to the client
+			c.mu.Lock()
+			err := c.conn.WriteMessage(websocket.TextMessage, msg)
+			c.mu.Unlock()
 			if err != nil {
 				log.Println(err)
-				break
+				return
 			}
-			log.Println(string(msg))
-			conn.WriteMessage(t, msg)
 		}
-
-		s.unregister <- Client
-
-	} else {
-		log.Println("Client already registerd with id ", clientID)
 	}
 
 }

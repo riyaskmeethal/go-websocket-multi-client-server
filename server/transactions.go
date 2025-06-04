@@ -5,47 +5,95 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Transaction struct {
-	ID       string `json:"id"`
-	ClientID string `json:"clientid"`
-	Status   string `json:"status"`
-	Details  string `json:"details,omitempty"`
-	Message  string `json:"message,omitempty"`
+	ID      string `json:"id"`
+	WID     string `json:"workerid"`
+	CID     string `json:"clientid"`
+	Status  string `json:"status"`
+	Details string `json:"details,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+type BroadCast struct {
+	ID      string `json:"id"`
+	WID     string `json:"workerid"`
+	Status  string `json:"status"`
+	Details string `json:"details,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
-func (s *Server) HandleTransactions(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleTransactions(c *gin.Context) {
 
 	// Ensure the body is closed after reading
-	defer r.Body.Close()
+	defer c.Request.Body.Close()
 
 	// Read the entire request body
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		http.Error(w, "Unable to read request body", http.StatusBadRequest)
+		http.Error(c.Writer, "Unable to read request body", http.StatusBadRequest)
 		return
 	}
 
 	txn := new(Transaction)
 	err = json.Unmarshal(body, txn)
-	log.Println(txn.ClientID, txn.ID)
+	log.Println(txn.CID, txn.WID)
 
 	if err != nil {
 		log.Println("unmarshalling err", err)
+		return
 	}
 
-	ClientID := strings.TrimSpace(txn.ClientID)
-
-	if ClientID != "" {
-		if client, ok := s.clients[ClientID]; ok {
-			log.Println("clientid", ClientID)
-			client.mu.Lock()
-			client.send <- body
-			client.mu.Unlock()
-		} else {
-			log.Println("client not registerd", ClientID)
-		}
+	if txn.WID == "" || txn.CID == "" {
+		log.Println("Worker id and Cleint id needed.")
+		return
 	}
+
+	client := s.GetRegisteredWorker(txn.WID).GetClient(txn.CID)
+
+	if client == nil {
+		log.Println("client not registerd", txn.CID)
+		c.Writer.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	client.send <- body
+}
+
+func (s *Server) HandleBroadCast(c *gin.Context) {
+
+	// Ensure the body is closed after reading
+	defer c.Request.Body.Close()
+
+	// Read the entire request body
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		http.Error(c.Writer, "Unable to read request body", http.StatusBadRequest)
+		return
+	}
+
+	bx := new(BroadCast)
+	err = json.Unmarshal(body, bx)
+	log.Println(bx.WID)
+
+	if err != nil {
+		log.Println("unmarshalling err", err)
+		return
+	}
+
+	if bx.WID == "" {
+		log.Println("Worker id needed.")
+		return
+	}
+
+	worker := s.GetRegisteredWorker(bx.WID)
+	if worker == nil {
+		log.Println("worker not registerd", bx.WID)
+		c.Writer.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	worker.broadcast <- body
 }

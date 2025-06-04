@@ -2,83 +2,70 @@ package server
 
 import (
 	"log"
+	"runtime"
 	"sync"
-
-	"github.com/gorilla/websocket"
+	"sync/atomic"
+	"time"
 )
 
-type Client struct {
-	id   string
-	conn *websocket.Conn
-	send chan []byte
-	mu   sync.Mutex
-}
-
-func NewClient() *Client {
-	return &Client{
-		send: make(chan []byte),
-		mu:   sync.Mutex{},
-	}
-}
-
 type Server struct {
-	clients    map[string]*Client
-	broadcast  chan []byte
-	register   chan *Client
-	unregister chan *Client
+	Workers      *sync.Map
+	removeWorker chan string
 }
 
 func NewServer() *Server {
-	return &Server{
-		clients:    make(map[string]*Client, 0),
-		broadcast:  make(chan []byte),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
+	s := &Server{
+		Workers:      &sync.Map{},
+		removeWorker: make(chan string, 10),
 	}
-
+	log.Println("Worker observer running ---------job")
+	go s.RemoveWorker()
+	return s
 }
 
-// Start the WebSocket server to handle new connections
-func (s *Server) Run() {
+func (s *Server) RemoveWorker() {
+
+	for wid := range s.removeWorker {
+		if w := s.GetWorker(wid); w != nil {
+			w.cancel()
+		}
+		go s.Workers.Delete(wid)
+		log.Println("Worker Removed.", wid)
+	}
+}
+
+func (s *Server) GetWorker(wid string) *Worker {
+	if v, workerExist := s.Workers.Load(wid); workerExist {
+		if w, ok := v.(*Worker); ok {
+			log.Println("existing worker")
+			return w
+		}
+	}
+	newWorker := NewWorker(wid)
+	s.Workers.Store(wid, newWorker)
+	log.Println("New worker created.")
+	return newWorker
+}
+
+func (s *Server) GetRegisteredWorker(wid string) (worker *Worker) {
+	if v, workerExist := s.Workers.Load(wid); workerExist {
+		if worker, ok := v.(*Worker); ok {
+			return worker
+		}
+	}
+	return
+}
+
+func StatsPrinter() {
 	for {
-		select {
-		case client := <-s.register:
-			log.Println("registering", client.id)
-
-			// Add new client to the client map
-			s.clients[client.id] = client
-			log.Println("registered", s.clients)
-
-		case client := <-s.unregister:
-			// Remove the client from the map and close the connection
-			delete(s.clients, client.id)
-			client.mu.Lock()
-			close(client.send)
-			client.conn.Close()
-			client.mu.Unlock()
-
-		case msg := <-s.broadcast:
-			// Send the broadcast message to all connected clients
-			for _, client := range s.clients {
-				client.mu.Lock()
-				client.send <- msg
-				client.mu.Unlock()
-			}
-		}
+		log.Printf("Active connections: %d | Goroutines: %d\n",
+			atomic.LoadInt64(&activeConnections),
+			runtime.NumGoroutine())
+		time.Sleep(30 * time.Second)
 	}
 }
 
-func (s *Server) SendMessages(client *Client) {
-
-	for msg := range client.send {
-		// Send the message to the client
-		client.mu.Lock()
-		err := client.conn.WriteMessage(websocket.TextMessage, msg)
-		client.mu.Unlock()
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
-	}
+type Message struct {
+	Status  string
+	Content any
 }
